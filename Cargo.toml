@@ -10,3 +10,4 @@ serde = { version = "1.0.166", features = ["derive"] }
 bincode = "1.3.3"
 libflate = "2.0.0"
 timed = { git = "https://github.com/copiumnicus/timed.git" }
+lazy_static = "1.4.0"

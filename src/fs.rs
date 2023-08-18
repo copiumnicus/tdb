@@ -22,23 +22,10 @@ pub(crate) fn template_and_mby_create(buf: &PathBuf, subdir: &str) -> Result<Pat
     Ok(mount_dir)
 }
 
-/// create file if does not exist
-pub(crate) fn mby_create_file_with_default<T>(buf: &PathBuf, file: &str) -> Result<()>
-where
-    // if can't deser then it would be stupid to store
-    T: Default + Serialize + for<'a> Deserialize<'a>,
-{
-    if !buf.join(file).exists() {
-        // create
-        write(buf, file, &T::default())?;
-    }
-    Ok(())
-}
-
 /// default if not exists not if fails
 pub(crate) fn read_or_default<T>(buf: &PathBuf, file: &str) -> Result<T>
 where
-    T: Default + Serialize + for<'a> Deserialize<'a>,
+    T: Default + for<'a> Deserialize<'a>,
 {
     if !buf.join(file).exists() {
         return Ok(T::default());
@@ -46,9 +33,21 @@ where
     read(buf, file)
 }
 
+pub(crate) fn read_or_create_default<T>(buf: &PathBuf, file: &str) -> Result<T>
+where
+    T: Default + for<'a> Deserialize<'a> + Serialize,
+{
+    if !buf.join(file).exists() {
+        let default = T::default();
+        write(buf, file, &default)?;
+        return Ok(default);
+    }
+    read(buf, file)
+}
+
 pub(crate) fn read<T>(buf: &PathBuf, file: &str) -> Result<T>
 where
-    T: Default + Serialize + for<'a> Deserialize<'a>,
+    T: Default + for<'a> Deserialize<'a>,
 {
     let file = buf.join(file);
     let file = std::fs::File::open(file)?;
@@ -62,8 +61,7 @@ where
 
 pub(crate) fn write<T>(buf: &PathBuf, file: &str, value: &T) -> Result<()>
 where
-    // if can't deser then it would be stupid to store
-    T: Default + Serialize + for<'a> Deserialize<'a>,
+    T: Default + Serialize,
 {
     let file = buf.join(file);
     // serialize bincode
@@ -95,7 +93,7 @@ mod test {
         let buf = PathBuf::from("./");
         let file = "hm";
         println!("default");
-        mby_create_file_with_default::<TestStruct>(&buf, file)?;
+        read_or_create_default::<TestStruct>(&buf, file)?;
 
         println!("read0");
         let mut res: TestStruct = read(&buf, file)?;

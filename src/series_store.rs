@@ -1,4 +1,7 @@
-use crate::{fs::mby_create_file_with_default, series_parent::SeriesParent};
+use crate::{
+    fs::{mby_create_dir, template_and_mby_create},
+    series_parent::SeriesParent,
+};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -24,9 +27,11 @@ pub struct SeriesStore {
 }
 
 impl SeriesStore {
-    pub fn new(mount_dir: PathBuf, series_name: String) -> Result<Self> {
+    pub fn new(buf: PathBuf, series_name: String) -> Result<Self> {
         let series_name = fmt_key(series_name);
-        mby_create_file_with_default::<SeriesParent>(&mount_dir, series_name.as_str())?;
+        // create the series dir
+        let mount_dir = template_and_mby_create(&buf, &series_name)?;
+        SeriesParent::init(&mount_dir)?;
         Ok(Self {
             mount_dir,
             series_name_hash: series_name,

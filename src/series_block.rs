@@ -37,19 +37,21 @@ impl SeriesBlock {
     pub(crate) fn write<T>(
         &mut self,
         buf: &PathBuf,
-        point: T,
+        point: &T,
         max_points: u16,
     ) -> Result<(), SeriesBlockErr>
     where
-        T: Serialize + for<'a> Deserialize<'a>,
+        T: Clone + Serialize + for<'a> Deserialize<'a>,
     {
         let file = self.id.to_string();
         let file = file.as_str();
         // read the block first
-        let mut block: Vec<T> = read_or_default(buf, file).map_err(SeriesBlockErr::map)?;
+        let mut block: Vec<(Duration, T)> =
+            read_or_default(buf, file).map_err(SeriesBlockErr::map)?;
         if (block.len() as u16) >= max_points {
             return Err(SeriesBlockErr::BlockAtCapacity(block.len()));
         }
+        let point = (timed::now(), point.clone());
         // update block
         block.push(point);
         // write the block
@@ -65,12 +67,13 @@ impl SeriesBlock {
         Ok(())
     }
 
-    pub(crate) fn read<T>(&self, buf: &PathBuf) -> Result<Vec<T>>
+    pub(crate) fn read_all<T>(&self, buf: &PathBuf) -> Result<Vec<T>>
     where
-        T: Serialize + for<'a> Deserialize<'a>,
+        T: for<'a> Deserialize<'a>,
     {
         let file = self.id.to_string();
-        read_or_default(buf, file.as_str())
+        let res: Vec<(Duration, T)> = read_or_default(buf, file.as_str())?;
+        Ok(res.into_iter().map(|a| a.1).collect())
     }
 }
 
@@ -82,8 +85,8 @@ mod test {
     fn test_read_write() -> Result<()> {
         let buf = PathBuf::from("./");
         let mut block = SeriesBlock::default();
-        block.write(&buf, 42usize, 2).unwrap();
-        block.write(&buf, 420usize, 2).unwrap();
+        block.write(&buf, &42usize, 2).unwrap();
+        block.write(&buf, &420usize, 2).unwrap();
 
         let now = timed::now();
 
@@ -92,7 +95,7 @@ mod test {
         assert!(block.to <= now);
         assert!(block.from < block.to);
 
-        assert!(block.write(&buf, 234usize, 2).is_err());
+        assert!(block.write(&buf, &234usize, 2).is_err());
 
         std::fs::remove_file(buf.join("0"))?;
 
