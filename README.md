@@ -10,14 +10,15 @@
 - Experience should be made for having `tdb` on the vm and accessing it from your computer
 - You just want to import a crate and have it work
 - The data could be said to be a timeseries
+- You want 0 footprint of the "datastore" code in your system code
 
   ^^ this is what we building
 
 ## Execution
 
-- lets use [libflate](https://crates.io/crates/libflate) for file storage.
+- lets use [libflate](https://crates.io/crates/libflate) gzip + bincode for file storage.
 - files will be stored in `series`
-- the points will be stored in 32 points per file (3600 * 24 / 32 = 2700 files per day if you write 1 per sec .. good enough, mby some reblocking on that front might be useful, have to see downstream), with a marked interval, being referenced in an `series-file`
+- the points will be stored in 32 points per file (3600 \* 24 / 32 = 2700 files per day if you write 1 per sec .. good enough, mby some reblocking on that front might be useful, have to see downstream), with a marked interval, being referenced in an `series-file`
 - `series-file` also needs to be declaring the series
 - should have an optional primary key for each series
 - should be easy to query over ssh
