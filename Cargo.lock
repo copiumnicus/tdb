@@ -119,6 +119,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43a3c133739dddd0d2990f9a4bdf8eb4b21ef50e4851ca85ab661199821d510e"
 dependencies = [
  "ahash",
+ "serde",
 ]
 
 [[package]]
@@ -247,6 +248,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "hashbrown",
  "lazy_static",
  "libflate",
  "serde",

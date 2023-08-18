@@ -34,12 +34,13 @@ impl SeriesBlock {
         next
     }
     /// updates self in place, the declaration that is
+    /// returns index of the item in the block
     pub(crate) fn write<T>(
         &mut self,
         buf: &PathBuf,
         point: &T,
         max_points: u16,
-    ) -> Result<(), SeriesBlockErr>
+    ) -> Result<usize, SeriesBlockErr>
     where
         T: Clone + Serialize + for<'a> Deserialize<'a>,
     {
@@ -54,6 +55,7 @@ impl SeriesBlock {
         let point = (timed::now(), point.clone());
         // update block
         block.push(point);
+        let index = block.len() - 1;
         // write the block
         write(buf, file, &block).map_err(SeriesBlockErr::map)?;
 
@@ -64,7 +66,7 @@ impl SeriesBlock {
         if block.len() == 1 {
             self.from = timed::now();
         }
-        Ok(())
+        Ok(index)
     }
 
     pub(crate) fn read_all<T>(&self, buf: &PathBuf) -> Result<Vec<T>>
