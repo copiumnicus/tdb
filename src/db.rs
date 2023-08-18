@@ -1,5 +1,11 @@
-use crate::fs::{mby_create_dir, template_and_mby_create};
+use crate::{
+    fs::{mby_create_dir, template_and_mby_create},
+    series_parent::{Series, SeriesParent},
+    OwnsPrimaryKey,
+};
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use std::hash::Hash;
 use std::path::PathBuf;
 
 pub struct Tdb {
@@ -22,6 +28,29 @@ pub fn new() -> Result<Tdb> {
     Ok(Tdb {
         mount_dir: template_and_mby_create(&base, "tdb")?,
     })
+}
+
+pub fn write_in_thread<T, K>(series_name: impl ToString, point: T)
+where
+    T: OwnsPrimaryKey<K> + Serialize + for<'a> Deserialize<'a> + Clone + Sync + Send + 'static,
+    K: PartialEq + Eq + Hash + Serialize + for<'a> Deserialize<'a> + Sync + Send,
+{
+    let series_name = series_name.to_string();
+    std::thread::spawn(|| {
+        if let Err(e) = write(series_name, point) {
+            println!("Failed to write {:?}", e)
+        }
+    });
+}
+
+pub fn write<T, K>(series_name: impl ToString, point: T) -> Result<()>
+where
+    T: OwnsPrimaryKey<K> + Serialize + for<'a> Deserialize<'a> + Clone,
+    K: PartialEq + Eq + Hash + Serialize + for<'a> Deserialize<'a>,
+{
+    let db = new()?;
+    let mut parent = Series::init_with_create_dir(db.mount_dir, series_name)?;
+    parent.write(point)
 }
 
 #[cfg(test)]

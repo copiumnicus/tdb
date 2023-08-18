@@ -1,15 +1,24 @@
 use crate::{
-    fs::{read_or_create_default, write},
+    fs::{read_or_create_default, template_and_mby_create, write},
     series_block::{SeriesBlock, SeriesBlockErr},
 };
 use anyhow::{anyhow, Result};
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 use std::{hash::Hash, marker::PhantomData, path::PathBuf};
 
 pub trait OwnsPrimaryKey<T> {
     fn get_primary_key(&self) -> T;
+}
+
+pub struct Series<T, K>
+where
+    K: PartialEq + Eq + Hash,
+{
+    buf: PathBuf,
+    parent: SeriesParent<T, K>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -43,56 +52,79 @@ lazy_static! {
     static ref PARENT_NAME: String = "PARENT".into();
 }
 
-impl<T, K> SeriesParent<T, K>
+fn fmt_key(k: String) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(k.as_bytes());
+    let result: Vec<u8> = hasher.finalize().to_vec();
+    format!(
+        "{}",
+        result
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<Vec<String>>()
+            .join("")
+    )
+}
+
+impl<T, K> Series<T, K>
 where
     T: OwnsPrimaryKey<K> + Clone + Serialize + for<'a> Deserialize<'a>,
     K: PartialEq + Eq + Hash + Serialize + for<'a> Deserialize<'a>,
 {
-    pub(crate) fn init(buf: &PathBuf) -> Result<Self> {
-        // make sure exists
-        let res = read_or_create_default(buf, PARENT_NAME.as_str())?;
-        Ok(res)
+    pub(crate) fn init_with_create_dir(
+        higher_dir: PathBuf,
+        series_name: impl ToString,
+    ) -> Result<Self> {
+        let series_name = fmt_key(series_name.to_string());
+        let target = template_and_mby_create(&higher_dir, &series_name)?;
+        let parent = read_or_create_default::<SeriesParent<T, K>>(&target, PARENT_NAME.as_str())?;
+        Ok(Self {
+            buf: target,
+            parent,
+        })
     }
-    fn write_self(&self, buf: &PathBuf) -> Result<()> {
-        write(buf, PARENT_NAME.as_str(), self)
+    fn write_self(&self) -> Result<()> {
+        write(&self.buf, PARENT_NAME.as_str(), &self.parent)
     }
-    pub(crate) fn write(&mut self, buf: &PathBuf, point: T) -> Result<()> {
+    pub(crate) fn write(&mut self, point: T) -> Result<()> {
         // first write
-        if self.blocks.len() == 0 {
+        if self.parent.blocks.len() == 0 {
             let mut block = SeriesBlock::default();
             // don't handle `at capacity` err
-            self.index.insert(
+            self.parent.index.insert(
                 point.get_primary_key(),
                 (
                     0, // block index
                     block
-                        .write(buf, &point, self.max_points_per_block)
+                        .write(&self.buf, &point, self.parent.max_points_per_block)
                         .map_err(|e| anyhow!("{:?}", e))?, // index within block
                 ),
             );
-            self.blocks.push(block);
+            self.parent.blocks.push(block);
         } else {
             // nth write
-            match self
-                .blocks
-                .last_mut()
-                .unwrap()
-                .write(buf, &point, self.max_points_per_block)
-            {
+            match self.parent.blocks.last_mut().unwrap().write(
+                &self.buf,
+                &point,
+                self.parent.max_points_per_block,
+            ) {
                 Err(e) => match e {
                     SeriesBlockErr::BlockAtCapacity(_) => {
                         // populate next block
-                        self.blocks.push(self.blocks.last().unwrap().next_block());
-                        let block_index = self.blocks.len() - 1;
+                        self.parent
+                            .blocks
+                            .push(self.parent.blocks.last().unwrap().next_block());
+                        let block_index = self.parent.blocks.len() - 1;
                         // write to next block
-                        self.index.insert(
+                        self.parent.index.insert(
                             point.get_primary_key(),
                             (
                                 block_index, // block index
-                                self.blocks
+                                self.parent
+                                    .blocks
                                     .last_mut()
                                     .unwrap()
-                                    .write(buf, &point, self.max_points_per_block)
+                                    .write(&self.buf, &point, self.parent.max_points_per_block)
                                     // don't handle the capacity again
                                     .map_err(|e| anyhow!("{:?}", e))?, // index within block
                             ),
@@ -101,33 +133,34 @@ where
                     SeriesBlockErr::Err(e) => return Err(e),
                 },
                 Ok(index_within) => {
-                    self.index.insert(
+                    self.parent.index.insert(
                         point.get_primary_key(),
-                        (self.blocks.len() - 1, index_within),
+                        (self.parent.blocks.len() - 1, index_within),
                     );
                 }
             }
         }
 
         // update the parent declaration
-        self.write_self(buf)?;
+        self.write_self()?;
 
         Ok(())
     }
 
-    pub(crate) fn read_all(&self, buf: &PathBuf) -> Result<Vec<T>> {
+    pub(crate) fn read_all(&self) -> Result<Vec<T>> {
         let result: Result<Vec<Vec<T>>, _> = self
+            .parent
             .blocks
             .iter()
-            .map(|block| block.read_all::<T>(buf))
+            .map(|block| block.read_all::<T>(&self.buf))
             .collect();
         Ok(result?.into_iter().flatten().collect())
     }
 
-    pub(crate) fn read_by_key(&self, buf: &PathBuf, key: &K) -> Option<T> {
-        let (block, inner) = self.index.get(key)?.clone();
-        let block = self.blocks.get(block)?;
-        let mut blocks = block.read_all::<T>(buf).ok()?;
+    pub(crate) fn read_by_key(&self, key: &K) -> Option<T> {
+        let (block, inner) = self.parent.index.get(key)?.clone();
+        let block = self.parent.blocks.get(block)?;
+        let mut blocks = block.read_all::<T>(&self.buf).ok()?;
         if blocks.len() < inner {
             return None;
         }
@@ -141,8 +174,7 @@ mod test {
 
     #[test]
     fn test_series_parent() -> Result<()> {
-        let buf = PathBuf::from("./test_parent");
-        std::fs::create_dir(buf.clone())?;
+        let buf = PathBuf::from("./");
 
         #[derive(Clone, Serialize, Deserialize)]
         struct TestStruct {
@@ -156,29 +188,26 @@ mod test {
             }
         }
 
-        let mut parent = SeriesParent::init(&buf)?;
+        let mut parent = Series::init_with_create_dir(buf.clone(), "test_parent")?;
         for id in 0..40 {
-            parent.write(
-                &buf,
-                TestStruct {
-                    s: format!("hi {:?}", id),
-                    id,
-                },
-            )?;
+            parent.write(TestStruct {
+                s: format!("hi {:?}", id),
+                id,
+            })?;
         }
 
-        assert_eq!(parent.blocks.len(), 2);
+        assert_eq!(parent.parent.blocks.len(), 2);
 
-        let res0 = parent.read_all(&buf)?;
+        let res0 = parent.read_all()?;
         // get parent fresh
-        let parent = SeriesParent::<TestStruct, _>::init(&buf)?;
+        let parent = Series::<TestStruct, _>::init_with_create_dir(buf.clone(), "test_parent")?;
 
-        assert_eq!(parent.index.get(&3).unwrap().clone(), (0, 3));
-        assert_eq!(parent.index.get(&35).unwrap().clone(), (1, 3));
+        assert_eq!(parent.parent.index.get(&3).unwrap().clone(), (0, 3));
+        assert_eq!(parent.parent.index.get(&35).unwrap().clone(), (1, 3));
 
-        assert_eq!(parent.read_by_key(&buf, &3).unwrap().s.as_str(), "hi 3");
+        assert_eq!(parent.read_by_key(&3).unwrap().s.as_str(), "hi 3");
 
-        let res1 = parent.read_all(&buf)?;
+        let res1 = parent.read_all()?;
         // check consistency
         for res in vec![res0, res1] {
             assert_eq!(res.len(), 40);
@@ -186,7 +215,7 @@ mod test {
             assert_eq!(res.last().unwrap().id, 39);
         }
 
-        std::fs::remove_dir_all(buf)?;
+        std::fs::remove_dir_all(buf.join("bc8d1c15e08802d934f9bdabc6d274b608ee31ad".to_string()))?;
         Ok(())
     }
 }
