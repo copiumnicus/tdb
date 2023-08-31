@@ -254,6 +254,7 @@ dependencies = [
  "serde",
  "sha1",
  "timed",
+ "tracing",
 ]
 
 [[package]]

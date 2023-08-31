@@ -12,7 +12,16 @@ pub struct Tdb {
     pub(crate) mount_dir: PathBuf,
 }
 
-impl Tdb {}
+impl Tdb {
+    pub fn series<T, K>(&self, series: impl ToString) -> Result<Series<T, K>>
+    where
+        T: OwnsPrimaryKey<K> + Clone + Serialize + for<'a> Deserialize<'a>,
+        K: PartialEq + Eq + Hash + Serialize + for<'a> Deserialize<'a>,
+    {
+        let parent = Series::init_with_create_dir(self.mount_dir.clone(), series)?;
+        Ok(parent)
+    }
+}
 
 pub fn custom(path: &PathBuf) -> Result<Tdb> {
     mby_create_dir(path)?;
@@ -38,7 +47,7 @@ where
     let series_name = series_name.to_string();
     std::thread::spawn(|| {
         if let Err(e) = write(series_name, point) {
-            println!("Failed to write {:?}", e)
+            tracing::error!("Failed to write {:?}", e);
         }
     });
 }

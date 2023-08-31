@@ -1,4 +1,5 @@
 use crate::{
+    custom,
     fs::{read_or_create_default, template_and_mby_create, write},
     series_block::{SeriesBlock, SeriesBlockErr},
 };
@@ -147,7 +148,15 @@ where
         Ok(())
     }
 
-    pub(crate) fn read_all(&self) -> Result<Vec<T>> {
+    pub fn size(&self) -> usize {
+        self.parent.index.len()
+    }
+
+    pub fn index(&self) -> &HashMap<K, (usize, usize)> {
+        &self.parent.index
+    }
+
+    pub fn read_all(&self) -> Result<Vec<T>> {
         let result: Result<Vec<Vec<T>>, _> = self
             .parent
             .blocks
@@ -157,7 +166,7 @@ where
         Ok(result?.into_iter().flatten().collect())
     }
 
-    pub(crate) fn read_by_key(&self, key: &K) -> Option<T> {
+    pub fn read_by_key(&self, key: &K) -> Option<T> {
         let (block, inner) = self.parent.index.get(key)?.clone();
         let block = self.parent.blocks.get(block)?;
         let mut blocks = block.read_all::<T>(&self.buf).ok()?;

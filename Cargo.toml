@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+tracing = "0.1.37"
 anyhow = "1.0.71"
 sha1 = "0.10.5"
 serde = { version = "1.0.166", features = ["derive"] }
