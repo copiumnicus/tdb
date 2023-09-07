@@ -87,7 +87,7 @@ where
     fn write_self(&self) -> Result<()> {
         write(&self.buf, PARENT_NAME.as_str(), &self.parent)
     }
-    pub(crate) fn write(&mut self, point: T) -> Result<()> {
+    pub fn write(&mut self, point: T) -> Result<()> {
         // first write
         if self.parent.blocks.len() == 0 {
             let mut block = SeriesBlock::default();
